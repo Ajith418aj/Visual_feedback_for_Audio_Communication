@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">AudioCall</string>
+    <string name="Create_btn">Create</string>
+    <string name="Join_btn">Join</string>
+    <string name="Password_holder">Password</string>
+    <string name="RoomId_holder">Room ID</string>
+    <string name="mic_img">mic</string>
+    <string name="speak_img">speak</string>
+    <string name="listen_img">listen</string>
+</resources>

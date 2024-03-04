@@ -1,0 +1,125 @@
+void receiveData(int audio_socket, int ack_socket, queue<pair<string, string>> &dataQueue)
+{
+    char audio_buffer[MAX_BUFFER_SIZE] = {0};
+    char ack_buffer[MAX_BUFFER_SIZE] = {0};
+
+    struct sockaddr_in senderAddress
+    {
+    };
+    socklen_t senderAddrLen = sizeof(senderAddress); // client socket length ?
+
+    while (true)
+    {
+        // Receive data from audio_socket
+        int audio_valread = recvfrom(audio_socket, audio_buffer, sizeof(audio_buffer), 0, reinterpret_cast<struct sockaddr *>(&senderAddress), &senderAddrLen);
+        if (audio_valread > 0)
+        {
+            // Retrieve the IP address of the sender
+            char senderIP[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &(senderAddress.sin_addr), senderIP, INET_ADDRSTRLEN); 
+
+            // Convert received data to a string
+            string audio_data(audio_buffer, audio_valread);
+
+            // Store the IP address and data as a pair in the queue
+            pair<string, string> audio_packet(senderIP, audio_data);
+
+            lock_guard<mutex> lock(queueMutex);
+            dataQueue.push(audio_packet);
+        }
+        else
+        {
+            // Handle error or connection closed
+            break;
+        }
+
+        // Receive data from ack_socket
+        int ack_valread = recvfrom(ack_socket, ack_buffer, sizeof(ack_buffer), 0, reinterpret_cast<struct sockaddr *>(&senderAddress), &senderAddrLen);
+        if (ack_valread > 0)
+        {
+            // Retrieve the IP address of the sender
+            char senderIP[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &(senderAddress.sin_addr), senderIP, INET_ADDRSTRLEN);
+
+            // Convert received data to a string
+            string ack_data(ack_buffer, ack_valread);
+
+            // Store the IP address and data as a pair in the queue
+            pair<string, string> ack_packet(senderIP, ack_data);
+
+            lock_guard<mutex> lock(queueMutex);
+            dataQueue.push(ack_packet);
+        }
+        else
+        {
+            // Handle error or connection closed
+            break;
+        }
+    }
+}
+
+void forwardData(queue<pair<string, string>> &dataQueue, const vector<string> &clients)
+{
+    while (true)
+    {
+        pair<string, string> packet;
+        {
+            lock_guard<mutex> lock(queueMutex);
+            if (!dataQueue.empty())
+            {
+                packet = dataQueue.front();
+                dataQueue.pop();
+            }
+            else
+            {
+                // No more data in the queue, exit the function
+                return;
+            }
+        }
+
+        const string &senderIP = packet.first;
+        const string &data = packet.second;
+
+        for (const auto &clientIP : clients)
+        {
+            if (clientIP != senderIP)
+            { // this is to send data to other clients in the room except itself
+                // Forward the data to the client IP address
+                cout << "Forwarding data to " << clientIP << endl;
+
+                // Create a socket to send data
+                int forwardSocket = socket(AF_INET, SOCK_DGRAM, 0);
+                if (forwardSocket == -1)
+                {
+                    cerr << "Failed to create forwarding socket" << endl;
+                    return;
+                }
+
+                // Set up the socket address for the clients
+                struct sockaddr_in clientAddress
+                {
+                };
+                clientAddress.sin_family = AF_INET;
+                clientAddress.sin_port = htons(20002); // Replace with the appropriate port
+                if (inet_pton(AF_INET, clientIP.c_str(), &(clientAddress.sin_addr)) <= 0)
+                {
+                    cerr << "Invalid client IP address" << endl;
+                    close(forwardSocket);
+                    return;
+                }
+
+                // Forward the data to the clients
+                ssize_t bytesSent = sendto(forwardSocket, data.c_str(), data.length(), 0,
+                                           reinterpret_cast<struct sockaddr *>(&clientAddress), sizeof(clientAddress));
+                if (bytesSent == -1)
+                {
+                    cerr << "Failed to forward data to " << clientIP << endl;
+                    close(forwardSocket);
+                    return;
+                }
+
+                close(forwardSocket);
+            }
+        }
+    }
+}
